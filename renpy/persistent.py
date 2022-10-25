@@ -531,6 +531,8 @@ def MultiPersistent(name, save_on_quit=False):
     elif renpy.macintosh:
         files = [ os.path.expanduser("~/.renpy/persistent"),
                   os.path.expanduser("~/Library/RenPy/persistent") ]
+    elif renpy.vita:
+        files = [ "ux0:/Ren'Py Data/persistent" ]
     else:
         files = [ os.path.expanduser("~/.renpy/persistent") ]
 

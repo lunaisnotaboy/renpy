@@ -78,7 +78,7 @@ enabled_events = {
 
     pygame.TEXTEDITING,
     pygame.TEXTINPUT,
-    pygame.KEYMAPCHANGED,
+    # pygame.KEYMAPCHANGED,
 
     pygame.MOUSEMOTION,
     pygame.MOUSEBUTTONDOWN,
@@ -2445,7 +2445,7 @@ class Interface(object):
 
         renpy.config.renderer = renderer
 
-        if renpy.android or renpy.ios or renpy.emscripten:
+        if renpy.android or renpy.ios or renpy.emscripten or renpy.vita:
             renderers = [ "gles" ]
         elif renpy.windows:
             renderers = [ "gl", "angle", "gles" ]
@@ -2477,7 +2477,7 @@ class Interface(object):
             renderers = [ "sw" ]
 
         # Software renderer is the last hope for PC and mac.
-        if not (renpy.android or renpy.ios or renpy.emscripten):
+        if not (renpy.android or renpy.ios or renpy.emscripten or renpy.vita):
             renderers = renderers + [ "sw" ]
 
         if self.safe_mode:
@@ -2671,7 +2671,7 @@ class Interface(object):
         if not self.started:
             return
 
-        if background and not renpy.emscripten:
+        if background and not (renpy.emscripten or renpy.vita):
             self.bgscreenshot_event.clear()
             self.bgscreenshot_needed = True
 
@@ -3536,7 +3536,7 @@ class Interface(object):
             # Step 5: Preload images (on emscripten)
             elif step == 5:
 
-                if expensive and renpy.emscripten:
+                if expensive and (renpy.emscripten or renpy.vita)
                     renpy.display.im.cache.preload_thread_pass()
 
                 step += 1
@@ -4164,7 +4164,7 @@ class Interface(object):
                 elif ev.type == pygame.TEXTINPUT:
                     self.text_editing = None
 
-                elif ev.type == pygame.KEYMAPCHANGED:
+                # elif ev.type == pygame.KEYMAPCHANGED:
 
                     # Clear the mods when the keymap is changed, such as when
                     # an IME is selected. This fixes a problem on Windows 10 where

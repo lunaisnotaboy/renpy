@@ -80,7 +80,7 @@ after_rollback = False
 post_init = [ ]
 
 # Should we attempt to run in a mode that uses less memory?
-less_memory = False
+less_memory = True
 
 # Should we attempt to run in a mode that minimizes the number
 # of screen updates?

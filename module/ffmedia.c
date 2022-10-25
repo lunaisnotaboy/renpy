@@ -8,7 +8,10 @@
 #include <SDL.h>
 #include <SDL_thread.h>
 
+#if defined(__arm__) && !(__MACOS__ || __IPHONEOS__ || __vita__)
+#define USE_MEMALIGN
 #include <stdlib.h>
+#endif
 
 #ifndef _WIN32
 #define USE_POSIX_MEMALIGN
@@ -35,14 +38,11 @@ const int BPS = 4; // Bytes per sample.
 
 const int FRAMES = 3;
 
-// The alignment of each row of pixels.
-const int ROW_ALIGNMENT = 16;
-
 // The number of pixels on each side. This has to be greater that 0 (since
 // Ren'Py needs some padding), FRAME_PADDING * BPS has to be a multiple of
 // 16 (alignment issues on ARM NEON), and has to match the crop in the
 // read_video function of renpysound.pyx.
-const int FRAME_PADDING = ROW_ALIGNMENT / 4;
+const int FRAME_PADDING = 4;
 
 const int SPEED = 1;
 
@@ -341,6 +341,11 @@ static void deallocate(MediaState *ms) {
 	}
 
 	if (ms->ctx) {
+    for (int i = 0; i < ms->ctx->nb_streams; i++) {
+      if (ms->ctx->streams[i]->codec) {
+        avcodec_close(ms->ctx->streams[i]->codec);
+      }
+    }
 
 		if (ms->ctx->pb) {
 			if (ms->ctx->pb->buffer) {
@@ -574,48 +579,37 @@ static void check_surface_queue(MediaState *ms) {
 
 static AVCodecContext *find_context(AVFormatContext *ctx, int index) {
 
-    AVDictionary *opts = NULL;
-
 	if (index == -1) {
 		return NULL;
 	}
 
-	AVCodec *codec = NULL;
-	AVCodecContext *codec_ctx = NULL;
+	AVCodec *codec;
+  AVCodecContext *codec_ctx = NULL;
+	AVCodecContext *codec_ctx_orig = ctx->streams[index]->codec;
 
-	codec_ctx = avcodec_alloc_context3(NULL);
+	codec = avcodec_find_decoder(codec_ctx_orig->codec_id);
+
+  if (codec == NULL) {
+    return NULL;
+  }
+
+  codec_ctx = avcodec_alloc_context3(codec);
 
 	if (codec_ctx == NULL) {
 		return NULL;
 	}
 
-	if (avcodec_parameters_to_context(codec_ctx, ctx->streams[index]->codecpar) < 0) {
+	if (avcodec_copy_context(codec_ctx, codec_ctx_orig)) {
 		goto fail;
 	}
 
-	codec_ctx->pkt_timebase = ctx->streams[index]->time_base;
-
-    codec = avcodec_find_decoder(codec_ctx->codec_id);
-
-    if (codec == NULL) {
-        goto fail;
-    }
-
-    codec_ctx->codec_id = codec->id;
-
-    av_dict_set(&opts, "threads", "auto", 0);
-    av_dict_set(&opts, "refcounted_frames", "0", 0);
-
-	if (avcodec_open2(codec_ctx, codec, &opts)) {
+	if (avcodec_open2(codec_ctx, codec, NULL)) {
 		goto fail;
 	}
 
 	return codec_ctx;
 
 fail:
-
-    av_dict_free(&opts);
-
 	avcodec_free_context(&codec_ctx);
 	return NULL;
 }
@@ -679,11 +673,6 @@ static void decode_audio(MediaState *ms) {
 
             converted_frame = av_frame_alloc();
 
-			if (converted_frame == NULL) {
-				ms->audio_finished = 1;
-				return;
-			}
-
             converted_frame->sample_rate = audio_sample_rate;
             converted_frame->channel_layout = AV_CH_LAYOUT_STEREO;
             converted_frame->format = AV_SAMPLE_FMT_S16;
@@ -712,7 +701,7 @@ static void decode_audio(MediaState *ms) {
 				continue;
 			}
 
-			double start = ms->audio_decode_frame->best_effort_timestamp * timebase;
+			double start = av_frame_get_best_effort_timestamp(ms->audio_decode_frame) * timebase;
 			double end = start + 1.0 * converted_frame->nb_samples / audio_sample_rate;
 
 			SDL_LockMutex(ms->lock);
@@ -802,7 +791,8 @@ static SurfaceQueueEntry *decode_video_frame(MediaState *ms) {
 		break;
 	}
 
-	double pts = ms->video_decode_frame->best_effort_timestamp * av_q2d(ms->ctx->streams[ms->video_stream]->time_base);
+	double pts = av_frame_get_best_effort_timestamp(ms->video_decode_frame) \
+    * av_q2d(ms->ctx->streams[ms->video_stream]->time_base);
 
 	if (pts < ms->skip) {
 		return NULL;
@@ -857,15 +847,11 @@ static SurfaceQueueEntry *decode_video_frame(MediaState *ms) {
 
 	rv->pitch = rv->w * sample->format->BytesPerPixel;
 
-	if (rv->pitch % ROW_ALIGNMENT) {
-	    rv->pitch += ROW_ALIGNMENT - (rv->pitch % ROW_ALIGNMENT);
-	}
-
-#ifndef USE_POSIX_MEMALIGN
-    rv->pixels = SDL_calloc(rv->pitch * rv->h, 1);
-#else
-    posix_memalign(&rv->pixels, ROW_ALIGNMENT, rv->pitch * rv->h);
+#ifdef USE_MEMALIGN
+    posix_memalign(&rv->pixels, 16, rv->pitch * rv->h);
     memset(rv->pixels, 0, rv->pitch * rv->h);
+#else
+    rv->pixels = SDL_calloc(1, rv->pitch * rv->h);
 #endif
 
 	rv->format = sample->format;
@@ -1122,13 +1108,13 @@ static int decode_thread(void *arg) {
 	ms->audio_stream = -1;
 
 	for (unsigned int i = 0; i < ctx->nb_streams; i++) {
-		if (ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+		if (ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
 			if (ms->want_video && ms->video_stream == -1) {
 				ms->video_stream = i;
 			}
 		}
 
-		if (ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+		if (ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
 			if (ms->audio_stream == -1) {
 				ms->audio_stream = i;
 			}
@@ -1591,6 +1577,29 @@ void media_sample_surfaces(SDL_Surface *rgb, SDL_Surface *rgba) {
 	rgba_surface = rgba;
 }
 
+static int lockmgr(void **mtx, enum AVLockOp op) {
+  switch (op) {
+    case AV_LOCK_CREATE:
+      *mtx = SDL_CreateMutex();
+
+      if (!*mtx) {
+        return 1;
+      }
+
+      return 0;
+    case AV_LOCK_OBTAIN:
+      return !!SDL_LockMutex(*mtx);
+    case AV_LOCK_RELEASE:
+      return !!SDL_UnlockMutex(*mtx);
+    case AV_LOCK_DESTROY:
+      SDL_DestroyMutex(*mtx);
+
+      return 0;
+  }
+
+  return 1;
+}
+
 void media_init(int rate, int status, int equal_mono) {
 
     deallocate_mutex = SDL_CreateMutex();
@@ -1598,10 +1607,13 @@ void media_init(int rate, int status, int equal_mono) {
 	audio_sample_rate = rate / SPEED;
 	audio_equal_mono = equal_mono;
 
+  av_register_all();
+
     if (status) {
         av_log_set_level(AV_LOG_INFO);
     } else {
         av_log_set_level(AV_LOG_ERROR);
     }
 
+  av_lockmgr_register(lockmgr);
 }

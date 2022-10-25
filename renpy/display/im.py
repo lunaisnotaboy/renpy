@@ -175,10 +175,13 @@ class Cache(object):
         by the game-maker.
         """
 
-        if renpy.config.image_cache_size is not None:
-            self.cache_limit = 2 * renpy.config.image_cache_size * renpy.config.screen_width * renpy.config.screen_height
+        if not renpy.vita:
+            if renpy.config.image_cache_size is not None:
+                self.cache_limit = 2 * renpy.config.image_cache_size * renpy.config.screen_width * renpy.config.screen_height
+            else:
+                self.cache_limit = int(renpy.config.image_cache_size_mb * 1024 * 1024 // 4)
         else:
-            self.cache_limit = int(renpy.config.image_cache_size_mb * 1024 * 1024 // 4)
+            self.cache_limit = int(100 * 1024 * 1024 // 4) # Some amount that makes sense. Settling with this for now
 
     def quit(self): # @ReservedAssignment
         if not self.preload_thread.is_alive():
@@ -363,7 +366,7 @@ class Cache(object):
         else:
             rv = ce.surf
 
-        if not renpy.config.cache_surfaces:
+        if not renpy.config.cache_surfaces or renpy.vita:
 
             if ce.surf is not None:
                 renpy.display.draw.mutated_surface(ce.surf)

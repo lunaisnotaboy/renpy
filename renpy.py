@@ -163,6 +163,9 @@ def path_to_saves(gamedir, save_directory=None):
         print("Saving to", rv)
         return rv
 
+    if renpy.vita:
+        return "ux0:/Ren'Py Data/" + save_directory
+
     # No save directory given.
     if not save_directory:
         return os.path.join(gamedir, "saves")
@@ -228,8 +231,16 @@ if android:
 
 
 def main():
+    import renpy # @UnresolvedImport
 
-    renpy_base = path_to_renpy_base()
+    # Very horrible check for the Vita, but sets it on the right path,
+    # literally.
+    if renpy.vita:
+        os.environ["RENPY_RENDERER"] = "gles"
+        os.environ["RENPY_LESS_MEMORY"] = "True"
+        renpy_base = str(sys.argv[1])
+    else:
+        renpy_base = path_to_renpy_base()
 
     sys.path.append(renpy_base)
 

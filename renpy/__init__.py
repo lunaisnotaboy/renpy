@@ -62,7 +62,6 @@ import sys
 import os
 import copy
 import types
-import site
 from collections import namedtuple
 
 ################################################################################
@@ -77,7 +76,11 @@ except ImportError:
     official = False
     nightly = False
 
-official = official and getattr(site, "renpy_build_official", False)
+try:
+    import site
+    official = official and getattr(site, "renpy_build_official", False)
+except NotImplementedError:
+    official = False
 
 VersionTuple = namedtuple("VersionTuple", ["major", "minor", "patch", "commit"])
 
@@ -125,6 +128,7 @@ macintosh = False
 linux = False
 android = False
 ios = False
+vita = False
 emscripten = False
 
 # Should we enable experimental features and debugging?
@@ -177,6 +181,8 @@ elif platform.mac_ver()[0]:
     macintosh = True
 elif "ANDROID_PRIVATE" in os.environ:
     android = True
+elif sys.platform == 'vita':
+    vita = True
 elif sys.platform == 'emscripten' or "RENPY_EMSCRIPTEN" in os.environ:
     emscripten = True
 else:
@@ -185,7 +191,7 @@ else:
 arch = os.environ.get("RENPY_PLATFORM", "unknown-unknown-unknown").rpartition("-")[2]
 
 # A flag that's true if we're on a smartphone or tablet-like platform.
-mobile = android or ios or emscripten
+mobile = android or ios or emscripten or vita
 
 # A flag that's set to true if the game directory is bundled inside a mac app.
 macapp = False
@@ -618,7 +624,7 @@ def reload_all():
     returned.
     """
 
-    if mobile:
+    if mobile or renpy.vita:
         raise Exception("Reloading is not supported on mobile platforms.")
 
     import renpy
